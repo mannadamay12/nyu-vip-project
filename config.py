@@ -61,9 +61,9 @@ RANDOM_SEED = 42
 
 # Deep learning training parameters
 MAX_EPOCHS = 100          # Maximum training epochs (increased for better convergence)
-BATCH_SIZE = 64           # Batch size (optimized via Optuna - best: 64 for GRU)
+BATCH_SIZE = 32           # Batch size for neural networks (smaller for better generalization)
 EARLY_STOP_PATIENCE = 20  # Patience for early stopping (increased to allow more exploration)
-LEARNING_RATE = 0.0015    # Learning rate (optimized via Optuna - best: ~0.0015 for GRU) 
+LEARNING_RATE = 5e-4      # Learning rate (moderate for stable convergence) 
 
 # =============================================================================
 # Model-Specific Configurations
@@ -79,12 +79,12 @@ LSTM_CONFIG = {
     "attention_heads": 2,   # Reduced attention heads to prevent overfitting
 }
 
-# GRU Configuration (optimized via Optuna - best validation accuracy: 0.7527)
+# GRU Configuration (optimized to match LSTM improvements)
 GRU_CONFIG = {
-    "layer1_units": 160,   # Optimized via Optuna (best: 0.7527 val accuracy)
-    "layer2_units": 96,     # Optimized via Optuna
-    "dropout_rate": 0.1,   # Optimized via Optuna (lower dropout for this task)
-    "dense_units": 48,     # Optimized via Optuna
+    "layer1_units": 128,   # Increased from 64
+    "layer2_units": 64,    # Increased from 32
+    "dropout_rate": 0.3,
+    "dense_units": 32,     # Increased from 16
 }
 
 # Random Forest Configuration
