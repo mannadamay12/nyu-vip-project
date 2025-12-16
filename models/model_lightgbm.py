@@ -46,7 +46,7 @@ from config import TASK_TYPE, LIGHTGBM_CONFIG, RANDOM_SEED
 
 
 def get_feature_importance(
-    model: lgb.LGBMModel,
+    model: Any,  # lgb.LGBMModel when available
     feature_names: List[str],
     top_n: int = 20
 ) -> Dict[str, float]:

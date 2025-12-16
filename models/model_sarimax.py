@@ -169,7 +169,6 @@ def fast_forecast_sarimax(
     This is 50-100x faster than rolling refit.
     """
     n_predictions = len(actual_values)
-    predictions = np.zeros(n_predictions)
 
     # Use the fitted model to forecast all at once using dynamic prediction
     try:
@@ -178,14 +177,21 @@ def fast_forecast_sarimax(
             steps=n_predictions,
             exog=future_exog
         )
-        predictions = forecast_result.predicted_mean.values
+        # Handle both pandas Series and numpy array returns
+        predicted = forecast_result.predicted_mean
+        if hasattr(predicted, 'values'):
+            predictions = predicted.values
+        else:
+            predictions = np.asarray(predicted)
         if verbose:
             print(f"    Generated {n_predictions} predictions (fast mode)")
     except Exception as e:
         if verbose:
             print(f"    Fast forecast failed ({e}), using fallback")
-        # Fallback: use simple extrapolation
-        predictions = np.full(n_predictions, fitted_model.fittedvalues.iloc[-1])
+        # Fallback: use last fitted value
+        fv = fitted_model.fittedvalues
+        last_val = fv.iloc[-1] if hasattr(fv, 'iloc') else fv[-1]
+        predictions = np.full(n_predictions, last_val)
 
     return predictions
 
