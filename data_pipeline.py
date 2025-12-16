@@ -155,6 +155,7 @@ def build_feature_frame(df_raw: pd.DataFrame) -> pd.DataFrame:
     df_features['Month'] = df_features.index.month
     df_features['Year'] = df_features.index.year
     df_features['Weekday'] = df_features.index.weekday  # 0=Monday, 6=Sunday
+    df_features['IS_WORKDAY'] = (df_features.index.weekday < 5).astype(int)  # 1=Mon-Fri, 0=Sat-Sun
     
     # 3. Return features - price return
     df_features['price_return'] = df_features['price'].pct_change()

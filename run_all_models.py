@@ -37,6 +37,25 @@ except ImportError:
 
 from models import model_rf
 
+# Traditional ML and Time Series models (always available)
+try:
+    from models import model_sarimax
+except ImportError:
+    model_sarimax = None
+    print("Warning: SARIMAX model not available (missing statsmodels/pmdarima).")
+
+try:
+    from models import model_svr
+except ImportError:
+    model_svr = None
+    print("Warning: SVR model not available.")
+
+try:
+    from models import model_lightgbm
+except ImportError:
+    model_lightgbm = None
+    print("Warning: LightGBM model not available.")
+
 # Step 3: Evaluation
 from metrics import evaluate_model_outputs
 
@@ -92,6 +111,51 @@ MODEL_REGISTRY["RF_price"] = {
     "seq_len": None,
     "description": "Random Forest for price prediction"
 }
+
+# SARIMAX models (time series with exogenous variables)
+if model_sarimax is not None:
+    MODEL_REGISTRY["SARIMAX_sign"] = {
+        "module": model_sarimax,
+        "task_type": "sign",
+        "seq_len": None,
+        "description": "Seasonal ARIMA with exogenous vars for direction prediction"
+    }
+    MODEL_REGISTRY["SARIMAX_price"] = {
+        "module": model_sarimax,
+        "task_type": "price",
+        "seq_len": None,
+        "description": "Seasonal ARIMA with exogenous vars for price prediction"
+    }
+
+# SVR models (Support Vector Regression)
+if model_svr is not None:
+    MODEL_REGISTRY["SVR_sign"] = {
+        "module": model_svr,
+        "task_type": "sign",
+        "seq_len": None,
+        "description": "Support Vector Regression for direction prediction"
+    }
+    MODEL_REGISTRY["SVR_price"] = {
+        "module": model_svr,
+        "task_type": "price",
+        "seq_len": None,
+        "description": "Support Vector Regression for price prediction"
+    }
+
+# LightGBM models (gradient boosting)
+if model_lightgbm is not None:
+    MODEL_REGISTRY["LightGBM_sign"] = {
+        "module": model_lightgbm,
+        "task_type": "sign",
+        "seq_len": None,
+        "description": "LightGBM gradient boosting for direction prediction"
+    }
+    MODEL_REGISTRY["LightGBM_price"] = {
+        "module": model_lightgbm,
+        "task_type": "price",
+        "seq_len": None,
+        "description": "LightGBM gradient boosting for price prediction"
+    }
 
 
 # =============================================================================
