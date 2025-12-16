@@ -1407,9 +1407,18 @@ def run_ml_model_ui(data: pd.DataFrame):
                 
                 # Baseline metrics
                 maj_acc = accuracy_score(y_test_array, majority_pred)
-                maj_prec = precision_score(y_test_array, majority_pred, zero_division=0)
-                maj_rec = recall_score(y_test_array, majority_pred, zero_division=0)
-                maj_f1 = f1_score(y_test_array, majority_pred, zero_division=0)
+                # Calculate metrics for the class that was predicted (majority class)
+                # If majority is 0, calculate for class 0; if majority is 1, calculate for class 1
+                if majority_class == 0:
+                    # For majority class 0, calculate metrics for class 0 (negative class)
+                    maj_prec = precision_score(y_test_array, majority_pred, pos_label=0, zero_division=0)
+                    maj_rec = recall_score(y_test_array, majority_pred, pos_label=0, zero_division=0)
+                    maj_f1 = f1_score(y_test_array, majority_pred, pos_label=0, zero_division=0)
+                else:
+                    # For majority class 1, calculate metrics for class 1 (positive class)
+                    maj_prec = precision_score(y_test_array, majority_pred, pos_label=1, zero_division=0)
+                    maj_rec = recall_score(y_test_array, majority_pred, pos_label=1, zero_division=0)
+                    maj_f1 = f1_score(y_test_array, majority_pred, pos_label=1, zero_division=0)
                 
                 rand_acc = accuracy_score(y_test_array, random_pred)
                 rand_prec = precision_score(y_test_array, random_pred, zero_division=0)
