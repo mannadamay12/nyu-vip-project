@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Dict
 
 # Backend imports
-from data_pipeline import make_dataset_for_task
+from data_pipeline_v2 import make_dataset_v2
 from metrics import evaluate_model_outputs, evaluate_trading_from_returns, print_evaluation_results
 from strategies import (
     run_percentile_strategy_backend,
@@ -93,8 +93,8 @@ def load_data():
     """Load electricity price data using unified pipeline"""
     try:
         # Use Step 1 data pipeline to load raw data
-        from data_pipeline import load_dataset
-        data = load_dataset()
+        from data_pipeline_v2 import load_dataset_v2
+        data = load_dataset_v2()
         
         # Debug: Show columns
         # st.write("DEBUG - Columns loaded:", list(data.columns)[:10])
@@ -1264,12 +1264,15 @@ def run_ml_model_ui(data: pd.DataFrame):
         try:
             # Step 1: Prepare data
             st.write("Loading and preprocessing data...")
-            datasets = make_dataset_for_task(
+            datasets = make_dataset_v2(
                 task_type=task_type,
                 seq_len=seq_len,  # None = tabular; int = sequence
                 test_size=test_size,
                 val_size=val_size,
-                scaler_type=config.SCALER_TYPE
+                scaler_type=config.SCALER_TYPE,
+                use_imputation=False,
+                drop_zero_returns=True if task_type == "sign" else False,
+                balance_data=True if task_type == "sign" else False,
             )
             
             # Step 2: Train model

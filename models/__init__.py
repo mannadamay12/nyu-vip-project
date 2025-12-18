@@ -29,11 +29,11 @@ Available Models:
 
 Example Usage:
     ```python
-    from data_pipeline import make_dataset_for_task
+    from data_pipeline_v2 import make_dataset_v2
     from models import model_lstm
     
     # Get data
-    datasets = make_dataset_for_task(task_type="sign", seq_len=14)
+    datasets = make_dataset_v2(task_type="sign", seq_len=14)
     
     # Train and predict
     results = model_lstm.train_and_predict(datasets)
