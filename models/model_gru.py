@@ -177,11 +177,11 @@ def train_and_predict(
     
     Example:
         ```python
-        from data_pipeline import make_dataset_for_task
+        from data_pipeline_v2 import make_dataset_v2
         from models import model_gru
         
         # Get sequential data for GRU
-        datasets = make_dataset_for_task(task_type="sign", seq_len=14)
+        datasets = make_dataset_v2(task_type="sign", seq_len=14)
         
         # Train and predict
         results = model_gru.train_and_predict(datasets)

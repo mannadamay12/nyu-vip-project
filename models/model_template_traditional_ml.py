@@ -104,8 +104,8 @@ def train_and_predict(
         - model: Trained model (recommended)
     
     Example:
-        >>> from data_pipeline import make_dataset_for_task
-        >>> datasets = make_dataset_for_task("sign", seq_len=None)
+        >>> from data_pipeline_v2 import make_dataset_v2
+        >>> datasets = make_dataset_v2("sign", seq_len=None)
         >>> result = train_and_predict(datasets)
         >>> print(result['y_pred_test'].shape)
         (300,)
@@ -236,11 +236,11 @@ if __name__ == "__main__":
     print("="*80)
     
     # Import data pipeline
-    from data_pipeline import make_dataset_for_task
+    from data_pipeline_v2 import make_dataset_v2
     
     # Load data (use same settings as in run_all_models.py)
     print("\n[1/3] Loading data...")
-    datasets = make_dataset_for_task(
+    datasets = make_dataset_v2(
         task_type=config.get_task_name(),
         seq_len=None,  # None for tabular models
         test_size=config.TEST_SIZE,

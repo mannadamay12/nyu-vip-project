@@ -21,7 +21,7 @@ from typing import Dict, Any, List
 import traceback
 
 # Step 1: Data pipeline
-from data_pipeline import make_dataset_for_task
+from data_pipeline_v2 import make_dataset_v2
 
 # Step 2: Models
 # Check PyTorch availability
@@ -197,12 +197,15 @@ def run_single_model(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
     
     # Step 1: Prepare data using unified pipeline
     print(f"[1/3] Loading data...")
-    datasets = make_dataset_for_task(
+    datasets = make_dataset_v2(
         task_type=task_type,
         seq_len=seq_len,  # None = tabular; int = sequence
         test_size=config.TEST_SIZE,
         val_size=config.VAL_SIZE,
-        scaler_type=config.SCALER_TYPE
+        scaler_type=config.SCALER_TYPE,
+        use_imputation=False,
+        drop_zero_returns=True if task_type == "sign" else False,
+        balance_data=True if task_type == "sign" else False,
     )
     print(f"      Train samples: {len(datasets['y_train'])}")
     print(f"      Val samples: {len(datasets['y_val'])}")

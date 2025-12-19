@@ -79,11 +79,11 @@ def train_and_predict(
     
     Example:
         ```python
-        from data_pipeline import make_dataset_for_task
+        from data_pipeline_v2 import make_dataset_v2
         from models import model_rf
         
         # Get tabular data for Random Forest
-        datasets = make_dataset_for_task(task_type="sign", seq_len=None)
+        datasets = make_dataset_v2(task_type="sign", seq_len=None)
         
         # Train and predict
         results = model_rf.train_and_predict(datasets)
@@ -230,12 +230,12 @@ if __name__ == "__main__":
     print("=" * 80)
     
     # Import data pipeline
-    from data_pipeline import make_dataset_for_task
+    from data_pipeline_v2 import make_dataset_v2
     from config import get_task_name
     
     # Get data for Random Forest (tabular, no sequences)
     print(f"\nLoading data for {TASK_TYPE} task...")
-    datasets = make_dataset_for_task(
+    datasets = make_dataset_v2(
         task_type=get_task_name(),
         seq_len=None,  # Random Forest needs tabular data
         scaler_type="standard"
