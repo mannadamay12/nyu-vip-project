@@ -232,11 +232,11 @@ def train_and_predict(
     
     Example:
         ```python
-        from data_pipeline import make_dataset_for_task
+        from data_pipeline_v2 import make_dataset_v2
         from models import model_lstm
         
         # Get sequential data for LSTM
-        datasets = make_dataset_for_task(task_type="sign", seq_len=14)
+        datasets = make_dataset_v2(task_type="sign", seq_len=14)
         
         # Train and predict
         results = model_lstm.train_and_predict(datasets)
@@ -341,12 +341,12 @@ if __name__ == "__main__":
     print("=" * 80)
     
     # Import data pipeline
-    from data_pipeline import make_dataset_for_task
+    from data_pipeline_v2 import make_dataset_v2
     from config import get_task_name
     
     # Get data for LSTM (requires sequences)
     print(f"\nLoading data for {TASK_TYPE} task...")
-    datasets = make_dataset_for_task(
+    datasets = make_dataset_v2(
         task_type=get_task_name(),
         seq_len=14,  # LSTM needs sequences
         scaler_type="standard"

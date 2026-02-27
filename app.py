@@ -22,9 +22,10 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import pickle
 from pathlib import Path
+from typing import Dict
 
 # Backend imports
-from data_pipeline import make_dataset_for_task
+from data_pipeline_v2 import make_dataset_v2
 from metrics import evaluate_model_outputs, evaluate_trading_from_returns, print_evaluation_results
 from strategies import (
     run_percentile_strategy_backend,
@@ -92,8 +93,8 @@ def load_data():
     """Load electricity price data using unified pipeline"""
     try:
         # Use Step 1 data pipeline to load raw data
-        from data_pipeline import load_dataset
-        data = load_dataset()
+        from data_pipeline_v2 import load_dataset_v2
+        data = load_dataset_v2()
         
         # Debug: Show columns
         # st.write("DEBUG - Columns loaded:", list(data.columns)[:10])
@@ -276,6 +277,604 @@ def plot_balance_growth(data: pd.DataFrame, initial_capital: float, final_balanc
     )
     
     st.plotly_chart(fig, use_container_width=True)
+
+
+def plot_training_history(history: Dict[str, list], model_name: str):
+    """
+    Plot training history (loss and metrics over epochs).
+    
+    Args:
+        history: Dictionary with keys like 'loss', 'val_loss', 'accuracy', 'val_accuracy'
+        model_name: Name of the model for title
+    """
+    if not history or 'loss' not in history:
+        return
+    
+    fig = go.Figure()
+    
+    epochs = range(1, len(history['loss']) + 1)
+    
+    # Training loss
+    fig.add_trace(go.Scatter(
+        x=list(epochs),
+        y=history['loss'],
+        mode='lines',
+        name='Train Loss',
+        line=dict(color='blue', width=2)
+    ))
+    
+    # Validation loss
+    if 'val_loss' in history:
+        fig.add_trace(go.Scatter(
+            x=list(epochs),
+            y=history['val_loss'],
+            mode='lines',
+            name='Val Loss',
+            line=dict(color='red', width=2)
+        ))
+    
+    # Add metric if available
+    metric_keys = [k for k in history.keys() if k not in ['loss', 'val_loss'] and not k.startswith('val_')]
+    if metric_keys:
+        metric_name = metric_keys[0]
+        fig.add_trace(go.Scatter(
+            x=list(epochs),
+            y=history[metric_name],
+            mode='lines',
+            name=f'Train {metric_name.title()}',
+            yaxis='y2',
+            line=dict(color='green', width=2, dash='dash')
+        ))
+        
+        val_metric_key = f'val_{metric_name}'
+        if val_metric_key in history:
+            fig.add_trace(go.Scatter(
+                x=list(epochs),
+                y=history[val_metric_key],
+                mode='lines',
+                name=f'Val {metric_name.title()}',
+                yaxis='y2',
+                line=dict(color='orange', width=2, dash='dash')
+            ))
+    
+    fig.update_layout(
+        title=f"{model_name} - Training History",
+        xaxis_title="Epoch",
+        yaxis_title="Loss",
+        yaxis2=dict(title="Metric", overlaying='y', side='right') if metric_keys else None,
+        hovermode='x unified',
+        height=400
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def plot_predictions_vs_actual(y_true: np.ndarray, y_pred: np.ndarray, 
+                               task_type: str, model_name: str):
+    """
+    Plot predictions vs actual values.
+    
+    Args:
+        y_true: True values
+        y_pred: Predicted values
+        task_type: "classification" or "regression"
+        model_name: Name of the model
+    """
+    y_true = np.asarray(y_true).flatten()
+    y_pred = np.asarray(y_pred).flatten()
+    
+    if task_type == "classification":
+        # For classification, show probability distribution and confusion
+        fig = go.Figure()
+        
+        # Histogram of predicted probabilities
+        fig.add_trace(go.Histogram(
+            x=y_pred,
+            nbinsx=50,
+            name='Predicted Probabilities',
+            opacity=0.7,
+            marker_color='blue'
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Prediction Probability Distribution",
+            xaxis_title="Predicted Probability",
+            yaxis_title="Frequency",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Confusion matrix heatmap
+        from sklearn.metrics import confusion_matrix
+        y_pred_binary = (y_pred > 0.5).astype(int)
+        cm = confusion_matrix(y_true, y_pred_binary)
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=cm,
+            x=['Predicted 0', 'Predicted 1'],
+            y=['Actual 0', 'Actual 1'],
+            colorscale='Blues',
+            text=cm,
+            texttemplate='%{text}',
+            textfont={"size": 16},
+            colorbar=dict(title="Count")
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Confusion Matrix",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # ROC Curve
+        from sklearn.metrics import roc_curve, auc
+        fpr, tpr, thresholds = roc_curve(y_true, y_pred)
+        roc_auc = auc(fpr, tpr)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=fpr,
+            y=tpr,
+            mode='lines',
+            name=f'ROC Curve (AUC = {roc_auc:.4f})',
+            line=dict(color='blue', width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=[0, 1],
+            y=[0, 1],
+            mode='lines',
+            name='Random Classifier',
+            line=dict(color='red', width=2, dash='dash')
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - ROC Curve",
+            xaxis_title="False Positive Rate",
+            yaxis_title="True Positive Rate",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Precision-Recall Curve
+        from sklearn.metrics import precision_recall_curve, auc as pr_auc
+        precision_curve, recall_curve, pr_thresholds = precision_recall_curve(y_true, y_pred)
+        pr_auc_score = pr_auc(recall_curve, precision_curve)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=recall_curve,
+            y=precision_curve,
+            mode='lines',
+            name=f'PR Curve (AUC = {pr_auc_score:.4f})',
+            line=dict(color='green', width=2)
+        ))
+        fig.add_hline(
+            y=y_true.mean(),
+            line_dash="dash",
+            line_color="red",
+            annotation_text=f"Baseline (mean={y_true.mean():.3f})"
+        )
+        
+        fig.update_layout(
+            title=f"{model_name} - Precision-Recall Curve",
+            xaxis_title="Recall",
+            yaxis_title="Precision",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Threshold Sweep
+        from sklearn.metrics import precision_score, recall_score, f1_score
+        thresholds = np.linspace(0.1, 0.9, 50)
+        precisions = []
+        recalls = []
+        f1_scores = []
+        
+        for thresh in thresholds:
+            y_pred_thresh = (y_pred >= thresh).astype(int)
+            precisions.append(precision_score(y_true, y_pred_thresh, zero_division=0))
+            recalls.append(recall_score(y_true, y_pred_thresh, zero_division=0))
+            f1_scores.append(f1_score(y_true, y_pred_thresh, zero_division=0))
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=thresholds,
+            y=precisions,
+            mode='lines',
+            name='Precision',
+            line=dict(color='blue', width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=thresholds,
+            y=recalls,
+            mode='lines',
+            name='Recall',
+            line=dict(color='green', width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=thresholds,
+            y=f1_scores,
+            mode='lines',
+            name='F1 Score',
+            line=dict(color='orange', width=2)
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Threshold Sweep (Precision, Recall, F1)",
+            xaxis_title="Threshold",
+            yaxis_title="Score",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Prediction Probability Distribution by Classification Result
+        y_pred_binary = (y_pred >= 0.5).astype(int)
+        tp_mask = (y_true == 1) & (y_pred_binary == 1)
+        fp_mask = (y_true == 0) & (y_pred_binary == 1)
+        fn_mask = (y_true == 1) & (y_pred_binary == 0)
+        tn_mask = (y_true == 0) & (y_pred_binary == 0)
+        
+        fig = go.Figure()
+        
+        if tp_mask.sum() > 0:
+            fig.add_trace(go.Histogram(
+                x=y_pred[tp_mask],
+                nbinsx=30,
+                name='True Positives',
+                opacity=0.7,
+                marker_color='green'
+            ))
+        
+        if fp_mask.sum() > 0:
+            fig.add_trace(go.Histogram(
+                x=y_pred[fp_mask],
+                nbinsx=30,
+                name='False Positives',
+                opacity=0.7,
+                marker_color='red'
+            ))
+        
+        if fn_mask.sum() > 0:
+            fig.add_trace(go.Histogram(
+                x=y_pred[fn_mask],
+                nbinsx=30,
+                name='False Negatives',
+                opacity=0.7,
+                marker_color='orange'
+            ))
+        
+        if tn_mask.sum() > 0:
+            fig.add_trace(go.Histogram(
+                x=y_pred[tn_mask],
+                nbinsx=30,
+                name='True Negatives',
+                opacity=0.7,
+                marker_color='blue'
+            ))
+        
+        fig.add_vline(x=0.5, line_dash="dash", line_color="black", annotation_text="Threshold 0.5")
+        
+        fig.update_layout(
+            title=f"{model_name} - Prediction Probability Distribution by Classification Result",
+            xaxis_title="Predicted Probability",
+            yaxis_title="Frequency",
+            barmode='overlay',
+            height=500
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Calibration Curve (Reliability Diagram)
+        from sklearn.calibration import calibration_curve
+        try:
+            fraction_of_positives, mean_predicted_value = calibration_curve(
+                y_true, y_pred, n_bins=10, strategy='uniform'
+            )
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=mean_predicted_value,
+                y=fraction_of_positives,
+                mode='lines+markers',
+                name='Model Calibration',
+                line=dict(color='blue', width=2),
+                marker=dict(size=8)
+            ))
+            fig.add_trace(go.Scatter(
+                x=[0, 1],
+                y=[0, 1],
+                mode='lines',
+                name='Perfectly Calibrated',
+                line=dict(color='red', width=2, dash='dash')
+            ))
+            
+            fig.update_layout(
+                title=f"{model_name} - Calibration Curve (Reliability Diagram)",
+                xaxis_title="Mean Predicted Probability",
+                yaxis_title="Fraction of Positives",
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.info(f"Calibration curve not available: {str(e)}")
+        
+        # Predictions Timeline
+        indices = range(len(y_true))
+        fig = go.Figure()
+        
+        # Actual labels
+        fig.add_trace(go.Scatter(
+            x=list(indices),
+            y=y_true,
+            mode='markers',
+            name='Actual Labels',
+            marker=dict(color='blue', size=4, symbol='circle'),
+            opacity=0.6
+        ))
+        
+        # Predicted probabilities
+        fig.add_trace(go.Scatter(
+            x=list(indices),
+            y=y_pred,
+            mode='lines',
+            name='Predicted Probability',
+            line=dict(color='green', width=1),
+            opacity=0.7
+        ))
+        
+        # Threshold line
+        fig.add_hline(y=0.5, line_dash="dash", line_color="red", annotation_text="Threshold 0.5")
+        
+        # Binary predictions
+        fig.add_trace(go.Scatter(
+            x=list(indices),
+            y=y_pred_binary,
+            mode='markers',
+            name='Binary Predictions',
+            marker=dict(color='orange', size=3, symbol='x'),
+            opacity=0.5
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Predictions Timeline",
+            xaxis_title="Sample Index",
+            yaxis_title="Label / Probability",
+            height=500
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    else:  # regression
+        # Scatter plot: predicted vs actual
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatter(
+            x=y_true,
+            y=y_pred,
+            mode='markers',
+            name='Predictions',
+            marker=dict(color='blue', size=4, opacity=0.6)
+        ))
+        
+        # Perfect prediction line
+        min_val = min(y_true.min(), y_pred.min())
+        max_val = max(y_true.max(), y_pred.max())
+        fig.add_trace(go.Scatter(
+            x=[min_val, max_val],
+            y=[min_val, max_val],
+            mode='lines',
+            name='Perfect Prediction',
+            line=dict(color='red', width=2, dash='dash')
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Predictions vs Actual",
+            xaxis_title="Actual Values",
+            yaxis_title="Predicted Values",
+            height=500
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Time series plot
+        fig = go.Figure()
+        
+        indices = range(len(y_true))
+        fig.add_trace(go.Scatter(
+            x=list(indices),
+            y=y_true,
+            mode='lines',
+            name='Actual',
+            line=dict(color='blue', width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=list(indices),
+            y=y_pred,
+            mode='lines',
+            name='Predicted',
+            line=dict(color='red', width=2)
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Predictions vs Actual (Time Series)",
+            xaxis_title="Sample Index",
+            yaxis_title="Value",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Residuals vs Time
+        residuals = y_true - y_pred
+        time_index = np.arange(len(residuals))
+        
+        # Residuals over time
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=time_index,
+            y=residuals,
+            mode='lines',
+            name='Residuals',
+            line=dict(color='blue', width=1),
+            opacity=0.6
+        ))
+        fig.add_hline(y=0, line_dash="dash", line_color="red")
+        
+        fig.update_layout(
+            title=f"{model_name} - Residuals vs Time",
+            xaxis_title="Time Index",
+            yaxis_title="Residual (True - Predicted)",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Rolling mean of residuals
+        window = max(20, len(residuals) // 20)
+        residuals_series = pd.Series(residuals)
+        rolling_mean = residuals_series.rolling(window=window).mean()
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=time_index,
+            y=rolling_mean,
+            mode='lines',
+            name=f'Rolling Mean (window={window})',
+            line=dict(color='green', width=2)
+        ))
+        fig.add_hline(y=0, line_dash="dash", line_color="red")
+        
+        fig.update_layout(
+            title=f"{model_name} - Rolling Mean of Residuals",
+            xaxis_title="Time Index",
+            yaxis_title="Rolling Mean Residual",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Residual distribution
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(
+            x=residuals,
+            nbinsx=50,
+            name='Residual Distribution',
+            marker_color='blue',
+            opacity=0.7
+        ))
+        fig.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="Zero Residual")
+        
+        fig.update_layout(
+            title=f"{model_name} - Residual Distribution",
+            xaxis_title="Residual Value",
+            yaxis_title="Frequency",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Rolling RMSE
+        window = max(20, len(residuals) // 20)
+        rolling_rmse = []
+        for i in range(0, len(residuals) - window + 1):
+            window_residuals = residuals[i:i+window]
+            rolling_rmse.append(np.sqrt(np.mean(window_residuals ** 2)))
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=list(range(len(rolling_rmse))),
+            y=rolling_rmse,
+            mode='lines',
+            name=f'Rolling RMSE (window={window})',
+            line=dict(color='purple', width=2)
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Rolling RMSE (Error Trends)",
+            xaxis_title="Window Index",
+            yaxis_title=f"Rolling RMSE (window={window})",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Q-Q Plot for Residuals (Normality Check)
+        from scipy import stats
+        try:
+            sorted_residuals = np.sort(residuals)
+            theoretical_quantiles = stats.norm.ppf(np.linspace(0.01, 0.99, len(sorted_residuals)))
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=theoretical_quantiles,
+                y=sorted_residuals,
+                mode='markers',
+                name='Residuals',
+                marker=dict(color='blue', size=4, opacity=0.6)
+            ))
+            
+            # Perfect normal line
+            min_val = min(theoretical_quantiles.min(), sorted_residuals.min())
+            max_val = max(theoretical_quantiles.max(), sorted_residuals.max())
+            fig.add_trace(go.Scatter(
+                x=[min_val, max_val],
+                y=[min_val, max_val],
+                mode='lines',
+                name='Perfect Normal',
+                line=dict(color='red', width=2, dash='dash')
+            ))
+            
+            fig.update_layout(
+                title=f"{model_name} - Q-Q Plot (Normality Check)",
+                xaxis_title="Theoretical Quantiles",
+                yaxis_title="Sample Quantiles",
+                height=400
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.info(f"Q-Q plot not available: {str(e)}")
+        
+        # Error by Magnitude
+        abs_residuals = np.abs(residuals)
+        abs_actual = np.abs(y_true)
+        
+        # Bin by magnitude
+        bins = np.linspace(abs_actual.min(), abs_actual.max(), 10)
+        bin_indices = np.digitize(abs_actual, bins)
+        
+        bin_errors = []
+        bin_centers = []
+        for i in range(1, len(bins)):
+            mask = bin_indices == i
+            if mask.sum() > 0:
+                bin_errors.append(np.mean(abs_residuals[mask]))
+                bin_centers.append((bins[i-1] + bins[i]) / 2)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=bin_centers,
+            y=bin_errors,
+            mode='lines+markers',
+            name='Mean Absolute Error',
+            line=dict(color='red', width=2),
+            marker=dict(size=8)
+        ))
+        
+        fig.update_layout(
+            title=f"{model_name} - Error by Magnitude",
+            xaxis_title="Absolute Actual Value",
+            yaxis_title="Mean Absolute Error",
+            height=400
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
 
 
 def display_metrics_cards(metrics: dict):
@@ -583,9 +1182,46 @@ def run_ml_model_ui(data: pd.DataFrame):
     with col2:
         model_type = st.selectbox(
             "Model Type",
-            options=["LSTM", "GRU", "Random Forest"],
+            options=["LightGBM", "SVR", "SARIMAX", "LSTM", "GRU", "Random Forest"],
             help="Select the model architecture"
         )
+    
+    # Optuna hyperparameter optimization (only for GRU)
+    use_optuna = False
+    optuna_trials = 20
+    optuna_timeout = None
+    
+    if model_type == "GRU":
+        st.subheader("Hyperparameter Optimization (Optuna)")
+        use_optuna = st.checkbox(
+            "Enable Optuna Hyperparameter Optimization",
+            value=False,
+            help="Automatically find the best hyperparameters using Optuna. This will take longer but may improve model performance."
+        )
+        
+        if use_optuna:
+            col_opt1, col_opt2 = st.columns(2)
+            with col_opt1:
+                optuna_trials = st.number_input(
+                    "Number of Trials",
+                    min_value=5,
+                    max_value=100,
+                    value=20,
+                    step=5,
+                    help="More trials = better results but longer time"
+                )
+            with col_opt2:
+                optuna_timeout_min = st.number_input(
+                    "Timeout (minutes, 0 = no timeout)",
+                    min_value=0,
+                    max_value=120,
+                    value=0,
+                    step=5,
+                    help="Maximum time to spend on optimization"
+                )
+                optuna_timeout = optuna_timeout_min * 60 if optuna_timeout_min > 0 else None
+            
+            st.info(f"⚠️ Optimization will run {optuna_trials} trials. This may take several minutes.")
     
     # Model parameters
     st.subheader("Model Parameters")
@@ -601,7 +1237,14 @@ def run_ml_model_ui(data: pd.DataFrame):
             )
         else:
             seq_len = None
-            st.info("Random Forest uses tabular data (no sequences)")
+            if model_type == "LightGBM":
+                st.info("LightGBM - Fast gradient boosting (GPU optional)")
+            elif model_type == "SVR":
+                st.info("SVR - Support Vector Regression with RBF kernel")
+            elif model_type == "SARIMAX":
+                st.info("SARIMAX - Seasonal ARIMA with exogenous variables")
+            else:
+                st.info("Random Forest uses tabular data (no sequences)")
     
     with col2:
         test_size = st.slider(
@@ -620,7 +1263,7 @@ def run_ml_model_ui(data: pd.DataFrame):
         # Check if selected model requires PyTorch
         if model_type in ["LSTM", "GRU"] and not PYTORCH_AVAILABLE:
             st.error(f"{model_type} model requires PyTorch, but PyTorch is not installed.")
-            st.info("Please select Random Forest model, or install PyTorch: `pip install torch`")
+            st.info("Please select LightGBM, SVR, SARIMAX, or Random Forest, or install PyTorch: `pip install torch`")
             return
         
         waiting_statement()
@@ -628,12 +1271,15 @@ def run_ml_model_ui(data: pd.DataFrame):
         try:
             # Step 1: Prepare data
             st.write("Loading and preprocessing data...")
-            datasets = make_dataset_for_task(
+            datasets = make_dataset_v2(
                 task_type=task_type,
                 seq_len=seq_len,  # None = tabular; int = sequence
                 test_size=test_size,
                 val_size=val_size,
-                scaler_type=config.SCALER_TYPE
+                scaler_type=config.SCALER_TYPE,
+                use_imputation=False,
+                drop_zero_returns=True if task_type == "sign" else False,
+                balance_data=True if task_type == "sign" else False,
             )
             
             # Step 2: Train model
@@ -641,12 +1287,28 @@ def run_ml_model_ui(data: pd.DataFrame):
             
             if model_type == "LSTM":
                 from models.model_lstm import train_and_predict
+                results = train_and_predict(datasets, config=None)
             elif model_type == "GRU":
                 from models.model_gru import train_and_predict
+                results = train_and_predict(
+                    datasets,
+                    config=None,
+                    use_optuna=use_optuna,
+                    optuna_trials=optuna_trials,
+                    optuna_timeout=optuna_timeout
+                )
+            elif model_type == "LightGBM":
+                from models.model_lightgbm import train_and_predict
+                results = train_and_predict(datasets, config=None)
+            elif model_type == "SVR":
+                from models.model_svr import train_and_predict
+                results = train_and_predict(datasets, config=None)
+            elif model_type == "SARIMAX":
+                from models.model_sarimax import train_and_predict
+                results = train_and_predict(datasets, config=None)
             else:  # Random Forest
                 from models.model_rf import train_and_predict
-            
-            results = train_and_predict(datasets, config=None)
+                results = train_and_predict(datasets, config=None)
             
             # Step 3: Evaluate
             st.write("Evaluating performance...")
@@ -662,8 +1324,73 @@ def run_ml_model_ui(data: pd.DataFrame):
             
             success_statement()
             
+            # Display Optuna results if available
+            if model_type == "GRU" and "optuna_results" in results:
+                st.subheader("Optuna Optimization Results")
+                optuna_results = results["optuna_results"]
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Best Validation Score", f"{optuna_results['best_value']:.4f}")
+                with col2:
+                    st.metric("Trials Completed", optuna_results["n_trials"])
+                with col3:
+                    st.metric("Status", "✓ Complete")
+                
+                with st.expander("Best Hyperparameters Found"):
+                    best_config = optuna_results["best_config"]
+                    st.json(best_config)
+                    
+                    # Show hyperparameter importance if available
+                    try:
+                        import optuna.visualization as vis
+                        importance_fig = vis.plot_param_importances(optuna_results["study"])
+                        st.plotly_chart(importance_fig, use_container_width=True)
+                    except Exception:
+                        pass
+            
             # Display results
             st.subheader("Model Performance")
+            
+            # Diagnostic information for classification models
+            if metrics_task_type == "classification":
+                y_test_array = np.asarray(datasets["y_test"]).flatten()
+                y_pred_array = np.asarray(results["y_pred_test"]).flatten()
+                
+                # Show prediction statistics
+                with st.expander("Prediction Diagnostics", expanded=True):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.write("**True Labels:**")
+                        st.write(f"- Total samples: {len(y_test_array)}")
+                        st.write(f"- Positive (1): {int(y_test_array.sum())} ({y_test_array.mean()*100:.1f}%)")
+                        st.write(f"- Negative (0): {int((1-y_test_array).sum())} ({(1-y_test_array.mean())*100:.1f}%)")
+                    
+                    with col2:
+                        st.write("**Predictions (Probabilities):**")
+                        st.write(f"- Min: {y_pred_array.min():.4f}")
+                        st.write(f"- Mean: {y_pred_array.mean():.4f}")
+                        st.write(f"- Max: {y_pred_array.max():.4f}")
+                        st.write(f"- Std: {y_pred_array.std():.4f}")
+                    
+                    with col3:
+                        st.write("**Predictions @ 0.5 Threshold:**")
+                        y_pred_binary = (y_pred_array > 0.5).astype(int)
+                        st.write(f"- Predicted Positive: {int(y_pred_binary.sum())} ({y_pred_binary.mean()*100:.1f}%)")
+                        st.write(f"- Predicted Negative: {int((1-y_pred_binary).sum())} ({(1-y_pred_binary.mean())*100:.1f}%)")
+                        
+                        # Show confusion matrix breakdown
+                        from sklearn.metrics import confusion_matrix
+                        cm = confusion_matrix(y_test_array, y_pred_binary)
+                        if cm.shape == (2, 2):
+                            st.write(f"- True Negatives: {cm[0,0]}")
+                            st.write(f"- False Positives: {cm[0,1]}")
+                            st.write(f"- False Negatives: {cm[1,0]}")
+                            st.write(f"- True Positives: {cm[1,1]}")
+                    
+                    # Warning if no positive predictions
+                    if y_pred_binary.sum() == 0:
+                        st.warning("⚠️ **Model is predicting all negatives!** This suggests the model may need: more training epochs, different learning rate, class balancing, or architecture adjustments.")
             
             # Prediction metrics
             st.write("**Prediction Metrics:**")
@@ -676,6 +1403,127 @@ def run_ml_model_ui(data: pd.DataFrame):
                         else:
                             st.metric(metric_name, value)
             
+            # Metric Comparison Table with Baselines
+            if metrics_task_type == "classification":
+                from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+                y_test_array = np.asarray(datasets["y_test"]).flatten()
+                y_pred_array = np.asarray(results["y_pred_test"]).flatten()
+                y_pred_binary = (y_pred_array > 0.5).astype(int)
+                y_train_array = np.asarray(datasets["y_train"]).flatten()
+                
+                # Calculate baselines
+                majority_class = int(np.round(y_train_array.mean()))
+                majority_pred = np.full_like(y_test_array, majority_class)
+                random_pred = np.random.RandomState(42).binomial(1, y_train_array.mean(), size=len(y_test_array))
+                random_prob = np.random.RandomState(42).uniform(0, 1, size=len(y_test_array))
+                
+                # Model metrics
+                model_acc = accuracy_score(y_test_array, y_pred_binary)
+                model_prec = precision_score(y_test_array, y_pred_binary, zero_division=0)
+                model_rec = recall_score(y_test_array, y_pred_binary, zero_division=0)
+                model_f1 = f1_score(y_test_array, y_pred_binary, zero_division=0)
+                model_auc = roc_auc_score(y_test_array, y_pred_array) if len(np.unique(y_test_array)) > 1 else 0.5
+                
+                # Baseline metrics
+                maj_acc = accuracy_score(y_test_array, majority_pred)
+                # Calculate metrics for the class that was predicted (majority class)
+                # If majority is 0, calculate for class 0; if majority is 1, calculate for class 1
+                if majority_class == 0:
+                    # For majority class 0, calculate metrics for class 0 (negative class)
+                    maj_prec = precision_score(y_test_array, majority_pred, pos_label=0, zero_division=0)
+                    maj_rec = recall_score(y_test_array, majority_pred, pos_label=0, zero_division=0)
+                    maj_f1 = f1_score(y_test_array, majority_pred, pos_label=0, zero_division=0)
+                else:
+                    # For majority class 1, calculate metrics for class 1 (positive class)
+                    maj_prec = precision_score(y_test_array, majority_pred, pos_label=1, zero_division=0)
+                    maj_rec = recall_score(y_test_array, majority_pred, pos_label=1, zero_division=0)
+                    maj_f1 = f1_score(y_test_array, majority_pred, pos_label=1, zero_division=0)
+                
+                rand_acc = accuracy_score(y_test_array, random_pred)
+                rand_prec = precision_score(y_test_array, random_pred, zero_division=0)
+                rand_rec = recall_score(y_test_array, random_pred, zero_division=0)
+                rand_f1 = f1_score(y_test_array, random_pred, zero_division=0)
+                from sklearn.metrics import roc_curve, auc
+                fpr_rand, tpr_rand, _ = roc_curve(y_test_array, random_prob)
+                rand_auc = auc(fpr_rand, tpr_rand)
+                
+                comparison_data = {
+                    "Model": [f"{model_type} Model", "Baseline (Majority)", "Baseline (Random)"],
+                    "Accuracy": [model_acc, maj_acc, rand_acc],
+                    "Precision": [model_prec, maj_prec, rand_prec],
+                    "Recall": [model_rec, maj_rec, rand_rec],
+                    "F1": [model_f1, maj_f1, rand_f1],
+                    "ROC-AUC": [model_auc, 0.5, rand_auc]
+                }
+                
+                comparison_df = pd.DataFrame(comparison_data)
+                st.subheader("Metric Comparison Table")
+                st.dataframe(comparison_df.style.format({
+                    "Accuracy": "{:.4f}",
+                    "Precision": "{:.4f}",
+                    "Recall": "{:.4f}",
+                    "F1": "{:.4f}",
+                    "ROC-AUC": "{:.4f}"
+                }), use_container_width=True)
+                
+            else:  # regression
+                y_test_array = np.asarray(datasets["y_test"]).flatten()
+                y_pred_array = np.asarray(results["y_pred_test"]).flatten()
+                y_train_array = np.asarray(datasets["y_train"]).flatten()
+                
+                from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error
+                
+                # Model metrics
+                model_mse = mean_squared_error(y_test_array, y_pred_array)
+                model_rmse = np.sqrt(model_mse)
+                model_mae = mean_absolute_error(y_test_array, y_pred_array)
+                model_r2 = r2_score(y_test_array, y_pred_array)
+                try:
+                    model_mape = mean_absolute_percentage_error(y_test_array, y_pred_array) * 100
+                except:
+                    model_mape = np.mean(np.abs((y_test_array - y_pred_array) / (y_test_array + 1e-8))) * 100
+                
+                # Baseline: Zero (predict 0)
+                zero_pred = np.zeros_like(y_test_array)
+                zero_mse = mean_squared_error(y_test_array, zero_pred)
+                zero_rmse = np.sqrt(zero_mse)
+                zero_mae = mean_absolute_error(y_test_array, zero_pred)
+                zero_r2 = r2_score(y_test_array, zero_pred)
+                try:
+                    zero_mape = mean_absolute_percentage_error(y_test_array, zero_pred) * 100
+                except:
+                    zero_mape = np.mean(np.abs((y_test_array - zero_pred) / (y_test_array + 1e-8))) * 100
+                
+                # Baseline: Mean (predict mean of training)
+                mean_pred = np.full_like(y_test_array, y_train_array.mean())
+                mean_mse = mean_squared_error(y_test_array, mean_pred)
+                mean_rmse = np.sqrt(mean_mse)
+                mean_mae = mean_absolute_error(y_test_array, mean_pred)
+                mean_r2 = r2_score(y_test_array, mean_pred)
+                try:
+                    mean_mape = mean_absolute_percentage_error(y_test_array, mean_pred) * 100
+                except:
+                    mean_mape = np.mean(np.abs((y_test_array - mean_pred) / (y_test_array + 1e-8))) * 100
+                
+                comparison_data = {
+                    "Model": [f"{model_type} Model", "Baseline (Zero)", "Baseline (Mean)"],
+                    "MSE": [model_mse, zero_mse, mean_mse],
+                    "RMSE": [model_rmse, zero_rmse, mean_rmse],
+                    "MAE": [model_mae, zero_mae, mean_mae],
+                    "R²": [model_r2, zero_r2, mean_r2],
+                    "MAPE (%)": [model_mape, zero_mape, mean_mape]
+                }
+                
+                comparison_df = pd.DataFrame(comparison_data)
+                st.subheader("📊 Metric Comparison Table")
+                st.dataframe(comparison_df.style.format({
+                    "MSE": "{:.6f}",
+                    "RMSE": "{:.6f}",
+                    "MAE": "{:.6f}",
+                    "R²": "{:.4f}",
+                    "MAPE (%)": "{:.2f}"
+                }), use_container_width=True)
+            
             # Trading metrics
             st.write("**Trading Metrics:**")
             key_trading = {
@@ -686,8 +1534,29 @@ def run_ml_model_ui(data: pd.DataFrame):
             }
             display_metrics_cards(key_trading)
             
-            # Detailed results
-            with st.expander("Detailed Results"):
+            # Visualizations
+            st.subheader("Model Visualizations")
+            
+            viz_tabs = st.tabs(["Training History", "Predictions Analysis", "Detailed Results"])
+            
+            with viz_tabs[0]:
+                # Training history plot
+                if "history" in results and results["history"]:
+                    plot_training_history(results["history"], model_type)
+                else:
+                    st.info("Training history not available for this model.")
+            
+            with viz_tabs[1]:
+                # Predictions vs actual plots
+                plot_predictions_vs_actual(
+                    datasets["y_test"],
+                    results["y_pred_test"],
+                    metrics_task_type,
+                    model_type
+                )
+            
+            with viz_tabs[2]:
+                # Detailed results
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -721,6 +1590,340 @@ def run_ml_model_ui(data: pd.DataFrame):
             import traceback
             with st.expander("Error Details"):
                 st.code(traceback.format_exc())
+
+
+# =============================================================================
+# Results Display Function
+# =============================================================================
+
+def display_results_page():
+    """Display final model results from the electricity price forecasting study."""
+    st.header("Model Performance Results")
+    st.markdown("""
+    Final results from our electricity price forecasting study on PJM market data (2002-2024).
+
+    **Dataset**: 5,540 real price observations (balanced classes: 51.2% Down / 48.8% Up)
+    **Split**: 70% train / 15% validation / 15% test
+    **Note**: Imputed days filtered out to ensure class balance and accurate labels.
+    """)
+
+    # Classification Results
+    st.subheader("Classification Task (Direction Prediction)")
+
+    # Performance data - updated with balanced data results
+    classification_data = pd.DataFrame({
+        'Model': ['GRU', 'Random Forest', 'LightGBM', 'LSTM', 'SVR', 'SARIMAX'],
+        'Accuracy (%)': [59.85, 59.69, 58.84, 56.55, 53.79, 51.26],
+        'ROI (%)': [26.91, 32.58, 31.81, 29.22, 11.97, 5.91],
+        'Sharpe Ratio': [2.68, 3.23, 3.15, 2.91, 1.17, 0.57],
+    })
+
+    # Highlight best model (Random Forest for trading)
+    st.dataframe(
+        classification_data.style.apply(
+            lambda x: ['background-color: #d4edda' if x.name == 1 else '' for _ in x],
+            axis=1
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # Key metrics cards
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Best Accuracy", "59.85%", delta="GRU")
+    with col2:
+        st.metric("Best ROI", "+32.58%", delta="Random Forest")
+    with col3:
+        st.metric("Best Sharpe", "3.23", delta="Random Forest")
+    with col4:
+        st.metric("Test Samples", "817")
+
+    # Classification comparison charts
+    st.subheader("Classification Performance Comparison")
+
+    chart_col1, chart_col2, chart_col3 = st.columns(3)
+
+    models = ['GRU', 'RF', 'LightGBM', 'LSTM', 'SVR', 'SARIMAX']
+    acc_vals = [59.85, 59.69, 58.84, 56.55, 53.79, 51.26]
+    roi_vals = [26.91, 32.58, 31.81, 29.22, 11.97, 5.91]
+    sharpe_vals = [2.68, 3.23, 3.15, 2.91, 1.17, 0.57]
+
+    with chart_col1:
+        fig_acc = go.Figure(data=[
+            go.Bar(
+                x=models,
+                y=acc_vals,
+                marker_color=['#28a745' if v > 55 else '#ffc107' if v > 52 else '#dc3545' for v in acc_vals],
+                text=[f'{v:.1f}%' for v in acc_vals],
+                textposition='outside'
+            )
+        ])
+        fig_acc.update_layout(
+            title='Classification Accuracy',
+            yaxis_title='Accuracy (%)',
+            yaxis_range=[0, 80],
+            height=350
+        )
+        fig_acc.add_hline(y=50, line_dash="dash", line_color="red", annotation_text="Random (50%)")
+        st.plotly_chart(fig_acc, use_container_width=True)
+
+    with chart_col2:
+        fig_roi = go.Figure(data=[
+            go.Bar(
+                x=models,
+                y=roi_vals,
+                marker_color=['#28a745' if v > 20 else '#ffc107' if v > 10 else '#dc3545' for v in roi_vals],
+                text=[f'{v:+.1f}%' for v in roi_vals],
+                textposition='outside'
+            )
+        ])
+        fig_roi.update_layout(
+            title='Return on Investment',
+            yaxis_title='ROI (%)',
+            height=350
+        )
+        fig_roi.add_hline(y=0, line_dash="dash", line_color="gray")
+        st.plotly_chart(fig_roi, use_container_width=True)
+
+    with chart_col3:
+        fig_sharpe = go.Figure(data=[
+            go.Bar(
+                x=models,
+                y=sharpe_vals,
+                marker_color=['#28a745' if v > 2 else '#ffc107' if v > 1 else '#dc3545' for v in sharpe_vals],
+                text=[f'{v:.2f}' for v in sharpe_vals],
+                textposition='outside'
+            )
+        ])
+        fig_sharpe.update_layout(
+            title='Risk-Adjusted Returns (Sharpe)',
+            yaxis_title='Sharpe Ratio',
+            height=350
+        )
+        fig_sharpe.add_hline(y=2, line_dash="dash", line_color="green", annotation_text="Good (>2)")
+        fig_sharpe.add_hline(y=1, line_dash="dash", line_color="orange", annotation_text="Acceptable (>1)")
+        st.plotly_chart(fig_sharpe, use_container_width=True)
+
+    # Regression Results
+    st.subheader("Regression Task (Return Prediction)")
+
+    regression_data = pd.DataFrame({
+        'Model': ['LightGBM', 'GRU', 'Random Forest', 'LSTM', 'SVR', 'SARIMAX'],
+        'MAE': [0.1348, 0.1343, 0.1494, 0.1375, 0.4071, 1.7679],
+        'RMSE': [0.1873, 0.1925, 0.1988, 0.1944, 0.5083, 2.5678],
+        'ROI (%)': [36.44, 33.88, 28.09, 26.89, 11.99, 5.91],
+        'Sharpe Ratio': [3.63, 3.40, 2.77, 2.67, 1.17, 0.57],
+    })
+
+    st.dataframe(
+        regression_data.style.apply(
+            lambda x: ['background-color: #d4edda' if x.name == 0 else '' for _ in x],
+            axis=1
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # Regression key finding
+    st.success("**Key Finding**: LightGBM regression (+36.44% ROI, Sharpe 3.63) outperforms classification (+32.58% ROI, Sharpe 3.23). All tree-based and neural network models achieve positive returns.")
+
+    # Feature Importance
+    st.subheader("LightGBM Feature Importance")
+
+    feature_data = pd.DataFrame({
+        'Feature': ['pjm_load_pct_change', 'temperature', 'price_return', 'volume_pct_change',
+                   'pjm_load', 'gas_price_pct_change', 'momentum_3d', 'temperature_pct_change',
+                   'price_lag1', 'volatility_30d'],
+        'Importance': [376, 373, 353, 350, 349, 349, 320, 319, 306, 302]
+    })
+
+    fig_feat = go.Figure(data=[
+        go.Bar(
+            y=feature_data['Feature'],
+            x=feature_data['Importance'],
+            orientation='h',
+            marker_color='#28a745',
+            text=feature_data['Importance'],
+            textposition='outside'
+        )
+    ])
+    fig_feat.update_layout(
+        title='Top 10 Predictive Features (LightGBM Classification)',
+        xaxis_title='Importance Score',
+        yaxis=dict(autorange="reversed"),
+        height=450
+    )
+    st.plotly_chart(fig_feat, use_container_width=True)
+
+    # Feature interpretation
+    with st.expander("Feature Interpretation"):
+        st.markdown("""
+        **Top Drivers:**
+        - **pjm_load_pct_change**: Daily electricity demand change (strongest signal)
+        - **temperature**: Weather impact on demand
+        - **price_return**: Previous day's price return
+        - **volume_pct_change**: Trading volume change
+        - **pjm_load**: Absolute electricity demand level
+        - **gas_price_pct_change**: Natural gas price movement
+        """)
+
+    # Model Comparison Summary
+    st.subheader("Model Comparison Summary")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        # Summary comparison
+        summary_data = pd.DataFrame({
+            'Metric': ['Best Accuracy', 'Best ROI', 'Best Sharpe', 'Most Consistent'],
+            'Classification': ['GRU (59.85%)', 'Random Forest (32.58%)', 'Random Forest (3.23)', 'LightGBM'],
+            'Regression': ['LightGBM (0.135 MAE)', 'LightGBM (36.44%)', 'LightGBM (3.63)', 'GRU'],
+        })
+        st.dataframe(summary_data, use_container_width=True, hide_index=True)
+
+    with col2:
+        st.markdown("**Key Insights:**")
+        st.markdown("""
+        - All models beat random baseline (50%)
+        - Tree-based models (RF, LightGBM) excel at trading
+        - Neural networks (LSTM, GRU) competitive on accuracy
+        - SARIMAX/SVR underperform on balanced data
+        """)
+
+    # Radar Chart Comparison
+    st.subheader("Multi-Metric Comparison")
+
+    # Normalize metrics for radar (based on regression task results)
+    # Accuracy normalized: (acc - 50) / (60 - 50) capped at [0, 1]
+    # ROI normalized: roi / 36.44 (best ROI)
+    # Sharpe normalized: sharpe / 3.63 (best Sharpe)
+    categories = ['Accuracy', 'ROI', 'Sharpe', 'MAE (inv)']
+
+    fig_radar = go.Figure()
+
+    # LightGBM (best overall)
+    fig_radar.add_trace(go.Scatterpolar(
+        r=[0.88, 1.0, 1.0, 1.0],
+        theta=categories,
+        fill='toself',
+        name='LightGBM',
+        line_color='#28a745'
+    ))
+
+    # GRU
+    fig_radar.add_trace(go.Scatterpolar(
+        r=[0.99, 0.93, 0.94, 0.99],
+        theta=categories,
+        fill='toself',
+        name='GRU',
+        line_color='#6f42c1'
+    ))
+
+    # Random Forest
+    fig_radar.add_trace(go.Scatterpolar(
+        r=[0.97, 0.77, 0.76, 0.90],
+        theta=categories,
+        fill='toself',
+        name='Random Forest',
+        line_color='#007bff'
+    ))
+
+    # LSTM
+    fig_radar.add_trace(go.Scatterpolar(
+        r=[0.66, 0.74, 0.74, 0.98],
+        theta=categories,
+        fill='toself',
+        name='LSTM',
+        line_color='#17a2b8'
+    ))
+
+    # SVR
+    fig_radar.add_trace(go.Scatterpolar(
+        r=[0.38, 0.33, 0.32, 0.33],
+        theta=categories,
+        fill='toself',
+        name='SVR',
+        line_color='#fd7e14'
+    ))
+
+    # SARIMAX
+    fig_radar.add_trace(go.Scatterpolar(
+        r=[0.13, 0.16, 0.16, 0.08],
+        theta=categories,
+        fill='toself',
+        name='SARIMAX',
+        line_color='#dc3545'
+    ))
+
+    fig_radar.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+        showlegend=True,
+        title='Model Performance Comparison (Normalized, Regression Task)',
+        height=500
+    )
+    st.plotly_chart(fig_radar, use_container_width=True)
+
+    # Trading Strategy Recommendation
+    st.subheader("Recommendations")
+
+    rec_col1, rec_col2 = st.columns(2)
+
+    with rec_col1:
+        st.markdown("### Best Configuration")
+        st.info("""
+        **Task**: Regression (Return Prediction)
+        **Model**: LightGBM
+        **ROI**: +36.44%
+        **Sharpe**: 3.63
+
+        Regression-derived signals outperform direct classification.
+        LightGBM achieves the best risk-adjusted returns on balanced data.
+        """)
+
+    with rec_col2:
+        st.markdown("### Production Strategy")
+        st.info("""
+        **Signal Generation**: Daily batch prediction before market open
+        **Position Sizing**: Scale by prediction confidence
+        **Risk Management**: Stop-loss at 2% drawdown
+        **Retraining**: Monthly with new data
+        **Data Quality**: Filter imputed days for accurate labels
+        """)
+
+    # Hyperparameters
+    with st.expander("Best Hyperparameters (Optuna-Tuned)"):
+        hyper_col1, hyper_col2 = st.columns(2)
+
+        with hyper_col1:
+            st.markdown("**LightGBM:**")
+            st.code("""
+n_estimators: 156
+learning_rate: 0.0184
+max_depth: 9
+num_leaves: 188
+min_child_samples: 68
+subsample: 0.872
+colsample_bytree: 0.755
+reg_alpha: 0.000155
+reg_lambda: 3.515
+            """)
+
+        with hyper_col2:
+            st.markdown("**SVR:**")
+            st.code("""
+kernel: rbf
+C: 10
+epsilon: 0.01
+gamma: 0.001
+            """)
+
+            st.markdown("**SARIMAX:**")
+            st.code("""
+Order: (0, 0, 0)
+Seasonal Order: (0, 0, 0, 7)
+# Pure exogenous model
+            """)
 
 
 # =============================================================================
@@ -763,6 +1966,7 @@ def main():
         "Select Strategy/Model:",
         options=[
             "Dashboard",
+            "Results",
             "Percentile Strategy",
             "Break of Structure",
             "ML Models",
@@ -807,7 +2011,10 @@ def main():
             volatility = (data['Electricity: Wtd Avg Price $/MWh'].std() / 
                          data['Electricity: Wtd Avg Price $/MWh'].mean()) * 100
             st.metric("Volatility", f"{volatility:.2f}%")
-    
+
+    elif page == "Results":
+        display_results_page()
+
     elif page == "Percentile Strategy":
         run_percentile_strategy_ui(data)
     
@@ -866,23 +2073,50 @@ def main():
         - **Parameters**: Initial capital, lookback window
         
         #### 3. Machine Learning Models
+        - **LightGBM**: Gradient boosting with leaf-wise tree growth (best overall)
+        - **GRU**: 2-layer GRU for sequence modeling (best accuracy)
+        - **Random Forest**: Ensemble method for tabular data (best classification trading)
         - **LSTM**: 2-layer LSTM for sequence modeling
-        - **GRU**: 2-layer GRU (faster alternative to LSTM)
-        - **Random Forest**: Ensemble method for tabular data
-        - **Tasks**: Classification (direction) or Regression (price)
-        
+        - **SVR**: Support Vector Regression with RBF kernel
+        - **SARIMAX**: Seasonal ARIMA with exogenous variables
+        - **Tasks**: Classification (direction) or Regression (return)
+
+        ### Model Performance (Balanced Data Results)
+
+        **Classification Task:**
+        | Model | Accuracy | ROI | Sharpe |
+        |-------|----------|-----|--------|
+        | GRU | 59.85% | +26.91% | 2.68 |
+        | **Random Forest** | 59.69% | **+32.58%** | **3.23** |
+        | LightGBM | 58.84% | +31.81% | 3.15 |
+        | LSTM | 56.55% | +29.22% | 2.91 |
+        | SVR | 53.79% | +11.97% | 1.17 |
+        | SARIMAX | 51.26% | +5.91% | 0.57 |
+
+        **Regression Task (Best Overall):**
+        | Model | MAE | ROI | Sharpe |
+        |-------|-----|-----|--------|
+        | **LightGBM** | **0.135** | **+36.44%** | **3.63** |
+        | GRU | 0.134 | +33.88% | 3.40 |
+        | Random Forest | 0.149 | +28.09% | 2.77 |
+        | LSTM | 0.138 | +26.89% | 2.67 |
+        | SVR | 0.407 | +11.99% | 1.17 |
+        | SARIMAX | 1.768 | +5.91% | 0.57 |
+
+        *LightGBM regression is recommended for trading signals (best risk-adjusted returns).*
+
         ### Metrics Explained
-        
+
         **Prediction Metrics:**
         - **MAE**: Mean Absolute Error (regression)
         - **Accuracy**: Classification accuracy
         - **F1 Score**: Harmonic mean of precision and recall
         - **AUC**: Area Under ROC Curve
-        
+
         **Trading Metrics:**
         - **ROI**: Return on Investment (%)
         - **Win Rate**: Percentage of profitable trades
-        - **Sharpe Ratio**: Risk-adjusted returns
+        - **Sharpe Ratio**: Risk-adjusted returns (>1 is good)
         - **Total Trades**: Number of trades executed
         
         ### Usage Tips
